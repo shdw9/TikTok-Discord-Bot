@@ -1,4 +1,3 @@
-from tkinter import EW
 import discord, json, requests,os, logging, asyncio
 from discord.ext import commands
 
