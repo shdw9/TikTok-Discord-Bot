@@ -14,7 +14,7 @@ discordBotToken = ""
 ###
 
 headers = {
-    'user-agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:92.0) Gecko/20100101 Firefox/92.0',
+    'user-agent': 'Mozilla/5.0 (Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0',
 }
 
 tikTokDomains = (
@@ -64,7 +64,7 @@ def getVideo(url):
         if status:
             headers = {
                 'Cookie': f"session_data={cookies['session_data']}",
-                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:92.0) Gecko/20100101 Firefox/92.0',
+                'User-Agent': 'Mozilla/5.0 (Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate',
@@ -105,7 +105,7 @@ def getVideo(url):
                             'type': 'audio',
                             'description': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[13:],
                             'thumbnail': None,
-                            'link': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[3]['href'],
+                            'link': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[4]['href'],
                             'url': url
                         }
 
@@ -123,20 +123,21 @@ def getVideo(url):
                         'type': 'video',
                         'description': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[23:-19],
                         'thumbnail': soup.findAll('img',attrs={'class':'responsive-img'})[0]['src'],
-                        'link': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[3]['href'],
+                        'link': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[4]['href'],
                         'url': url
                     }
 
-            except Exception:
+            except Exception as e:
+                print(e)
                 return {
                     'success': False,
-                    'error': 'exception'
+                    'error1': 'exception'
                 }
         
         else:
             return {
                         'success': False,
-                        'error': 'exception'
+                        'error2': 'exception'
                     }
 
     else:
@@ -176,7 +177,7 @@ async def on_message(message):
                 directLink = tikTok["link"]
                 
                 # download file with randomized file name
-                randomizedFileName = str(random.randint(100000000,900000000)) + ".mp4"
+                randomizedFileName = str(random.randint(10000,90000)) + ".mp4"
                 downloadFile = requests.get(directLink).content
                 with open(randomizedFileName,"wb") as f:
                     f.write(downloadFile)
@@ -185,12 +186,17 @@ async def on_message(message):
                 try:
                     await message.channel.send(content=message.author.mention + "\n\n<"+message.content+">",file=discord.File(randomizedFileName))
                 except:
-                    bitty = shortenURL(directLink)
-                    await message.channel.send(message.author.mention + "\n\n<"+message.content+">\n\n"+ bitty)
+                    try:
+                        uploadFile = requests.post("https://shdwrealm.com/upload-file",files = {'file': open(randomizedFileName,'rb')})
+                        await message.channel.send(message.author.mention + "\n\n<"+message.content+">\n\n"+ uploadFile.json()["link"])
+                    except:
+                        bitty = shortenURL(directLink)
+                        await message.channel.send(message.author.mention + "\n\n<"+message.content+">\n\n"+ bitty)
 
                 await message.delete()
                 os.remove(randomizedFileName)
         except:
             await message.clear_reaction('🔁')
+
 
 bot.run(discordBotToken)
