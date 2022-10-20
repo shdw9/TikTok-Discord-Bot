@@ -24,7 +24,7 @@ tikTokDomains = (
 
 @bot.event
 async def on_ready():
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="TikToks"))
+    await bot.change_presence(activity=discord.Streaming(name="shdw's Tiktoks", url='https://www.twitch.tv/bikinis'))
     print('=> Logged in as {0.user}'.format(bot))
 
 @bot.event
@@ -83,6 +83,7 @@ def getVideo(url):
             try:
                 response = requests.post('https://musicaldown.com/download', data=data, headers=headers, allow_redirects=False)
 
+                print(response.headers)
                 if 'location' in response.headers:
                     if response.headers['location'] == '/en/?err=url invalid!':
                         return {
@@ -106,7 +107,26 @@ def getVideo(url):
                             'description': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[13:],
                             'thumbnail': None,
                             'link': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[4]['href'],
+                            'description':soup.findAll('h2',class_="white-text")[1].getText(),
                             'url': url
+                        }
+
+                    elif response.headers['location'] == '/photo/download':
+                        response = requests.post('https://musicaldown.com//photo/download', data=data, headers=headers)
+                        soup = BeautifulSoup(response.content, 'html.parser')
+
+                        photosList = []
+
+                        for x in soup.findAll('div',class_="col s12 m3"):
+                            photosList.append(str(x).split("<img")[1].split("src=\"")[1].split("\"")[0])
+
+                        return {
+                            'success': True,
+                            'type': "photo",
+                            'link': "tiktok.com",
+                            'photos':photosList,
+                            'description': "**TIKTOK PHOTO SLIDESHOW**",
+                            'url':url
                         }
 
                     else:
@@ -124,6 +144,7 @@ def getVideo(url):
                         'description': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[23:-19],
                         'thumbnail': soup.findAll('img',attrs={'class':'responsive-img'})[0]['src'],
                         'link': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[4]['href'],
+                        'description':soup.findAll('h2',class_="white-text")[1].getText(),
                         'url': url
                     }
 
@@ -168,35 +189,55 @@ def checkURL(message):
 
 @bot.event
 async def on_message(message):
+    if message.author.bot:
+        return
+
     if "tiktok.com" in message.content:
         await message.add_reaction('🔁')
         try:
             if (checkURL(message.content)):
                 tikTok = getVideo(message.content)
+                #print(tikTok)
 
                 directLink = tikTok["link"]
+                tiktokDescription = tikTok["description"].strip()
+
+                description = message.author.mention 
+                if not tiktokDescription == "":
+                    description += "\n\n" + tiktokDescription
+                description += "\n\n:link:: <"+message.content+">"
+
+                if tikTok["type"] == "photo":
+                    await message.channel.send(content=description)
+                    for photo in tikTok["photos"]:
+                        await message.channel.send(content=photo)
+                    return
                 
                 # download file with randomized file name
-                randomizedFileName = str(random.randint(10000,90000)) + ".mp4"
+                randomizedFileName = requests.get("https://random-word-api.herokuapp.com/word").json()[0] + ".mp4"
                 downloadFile = requests.get(directLink).content
                 with open(randomizedFileName,"wb") as f:
                     f.write(downloadFile)
-                
+
                 # attempt to upload the file, if not then the file size is over 8MB, return shortened bit.ly link
                 try:
-                    await message.channel.send(content=message.author.mention + "\n\n<"+message.content+">",file=discord.File(randomizedFileName))
+                    await message.channel.send(content=description,file=discord.File(randomizedFileName))
                 except:
-                    try:
-                        uploadFile = requests.post("https://shdwrealm.com/upload-file",files = {'file': open(randomizedFileName,'rb')})
-                        await message.channel.send(message.author.mention + "\n\n<"+message.content+">\n\n"+ uploadFile.json()["link"])
-                    except:
                         bitty = shortenURL(directLink)
-                        await message.channel.send(message.author.mention + "\n\n<"+message.content+">\n\n"+ bitty)
+                        await message.channel.send(description + "\n\n"+ bitty)
 
-                await message.delete()
+                try:
+                    await message.delete()
+                except:
+                    await message.add_reaction('✅')
+                    await message.clear_reaction('🔁')
                 os.remove(randomizedFileName)
-        except:
-            await message.clear_reaction('🔁')
+        except Exception as e:
+            print(e)
+            try:
+                await message.clear_reaction('🔁')
+            except:
+                pass
 
 
 bot.run(discordBotToken)
