@@ -136,6 +136,7 @@ async def on_message(message):
                 
                 if tikTok["valid"] != True:
                     await message.clear_reaction('🔁')
+                    await message.add_reaction('🚷')
                     return
 
                 directLink = tikTok["items"]
