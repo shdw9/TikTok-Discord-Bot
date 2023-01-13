@@ -1,15 +1,13 @@
-from discord.ext import commands
 from discord.ext.commands import CommandNotFound
-from httpx import AsyncClient
-from re import findall
+from bs4 import BeautifulSoup
 import discord, requests, os, sys
 
 sys.path.append("./libs/")
 
-bot = commands.Bot(command_prefix='!')
+bot = discord.Bot(intents=discord.Intents.all())
 
 ###
-userAgent = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:105.0) Gecko/20100101 Firefox/105.0"
+userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
 bitlyUsername = ""
 bitlyPassword = ""
 discordBotToken = ""
@@ -31,77 +29,127 @@ async def on_command_error(ctx, error):
         return
     raise error
 
-async def getVideo(url):
-    video_id_from_url=findall('https://www.tiktok.com/@.*?/video/(\d+)', url)
-    if len(video_id_from_url)>0:
-        video_id=video_id_from_url[0]
-    else:
-        headers1 = {
-            "User-Agent": userAgent,
-            "Accept": "text/html, application/xhtml+xml, application/xml; q=0.9, image/avif, image/webp, */*; q=0.8"
-        }
-
-        async with AsyncClient() as client:
-            r1 = await client.get(url, headers=headers1)
-        #print("r1", r1.status_code)
-        if r1.status_code ==301:
-            video_id = findall('a href="https://www.tiktok.com/@.*?/video/(\d+)', r1.text)[0]
-        #403
-        else:
-            video_id = findall("video&#47;(\d+)", r1.text)[0]
-
-    url2 = f"http://api16-normal-useast5.us.tiktokv.com/aweme/v1/aweme/detail/?aweme_id={video_id}"
-    headers2 = {
-        "User-Agent": userAgent}
-    async with AsyncClient() as client:
-        r2 = await client.get(url2, headers=headers2)
-    #print("r2", r2.status_code)
-    resp = r2.json()
-
+def getToken(url):
     try:
-        is_video = len(resp["aweme_detail"]["video"]["bit_rate"]) > 0
-    except:
-        #video unavailable
-        return {"valid":False}
+        response = requests.post('https://musicaldown.com/', headers={"user-agent":userAgent})
+        
+        cookies = response.cookies
+        soup = BeautifulSoup(response.content, 'html.parser').find_all('input')
 
-    #print("is_video", is_video)
+        data = {
+            soup[0].get('name'):url,
+            soup[1].get('name'):soup[1].get('value'),
+            soup[2].get('name'):soup[2].get('value')
+        }
+        
+        return True, cookies, data
+    
+    except Exception:
+        return None, None, None
 
-    nickname = resp["aweme_detail"]["author"]["nickname"]
-    desc = resp["aweme_detail"]["desc"]
-    statistic = resp["aweme_detail"]["statistics"]
-    music = resp["aweme_detail"]["music"]["play_url"]["uri"]
-    if is_video:
-        cover_url = resp["aweme_detail"]["video"]["origin_cover"]["url_list"][0]
+async def getVideo(url):
+    # credits to developedbyalex
+    if not url.startswith('http'):
+        url = 'https://' + url
 
-        for bit_rate in resp["aweme_detail"]["video"]["bit_rate"]:
-            height=bit_rate["play_addr"]["height"]
-            width=bit_rate["play_addr"]["width"]
-            data_size=bit_rate["play_addr"]["data_size"]
+    if url.lower().startswith(tikTokDomains):
+        url = url.split('?')[0]
+        
+        status, cookies, data = getToken(url)
 
-            url_list=bit_rate["play_addr"]["url_list"]
-            quality_type=bit_rate["quality_type"]
+        if status:
+            headers = {
+                'Cookie': f"session_data={cookies['session_data']}",
+                'User-Agent': userAgent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': '96',
+                'Origin': 'https://musicaldown.com',
+                'Referer': 'https://musicaldown.com/en/',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'same-origin',
+                'Sec-Fetch-User': '?1',
+                'Te': 'trailers'
+            }
 
-            if int(data_size)>19999999:
-                print("to_large_for_tg",height,"x",width,int(data_size)/1000000,"MB","quality_type:",quality_type)
-            else:
-                #print("good_for_tg",height,"x",width,int(data_size)/1000000,"MB","quality_type:",quality_type)
-                videos_url=url_list
-                large_for_tg=False
-                break
+            try:
+                response = requests.post('https://musicaldown.com/download', data=data, headers=headers, allow_redirects=False)
+
+                if 'location' in response.headers:
+                    if response.headers['location'] == '/en/?err=url invalid!':
+                        return {'valid': False,'error': 'invalidUrl'}
+
+                    elif response.headers['location'] == '/en/?err=Video is private!':
+                        return {'valid': False,'error': 'privateVideo'}
+
+                    elif response.headers['location'] == '/mp3/download':
+                        response = requests.post('https://musicaldown.com//mp3/download', data=data, headers=headers)
+                        soup = BeautifulSoup(response.content, 'html.parser')
+
+                        return {
+                            'valid': True,
+                            'type': 'audio',
+                            'description': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[13:],
+                            'thumbnail': None,
+                            'items': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange download'})[0]['href'],
+                            'description':soup.findAll('h2',class_="white-text")[1].getText(),
+                            'url': url
+                        }
+
+                    elif response.headers['location'] == '/photo/download':
+                        response = requests.post('https://musicaldown.com//photo/download', data=data, headers=headers)
+                        soup = BeautifulSoup(response.content, 'html.parser')
+
+                        #print(soup.text)
+                        photosList = []
+
+                        for x in soup.findAll('div',class_="col s12 m3"):
+                            photosList.append(str(x).split("<img")[1].split("src=\"")[1].split("\"")[0])
+
+                        return {
+                            #photo
+                            'valid': True,
+                            'is_video': False,
+                            'link': "tiktok.com",
+                            'items': photosList,
+                            'desc': "**TIKTOK PHOTO SLIDESHOW**",
+                            'url':url
+                        }
+
+                    else:
+                        return {'valid': False,'error': 'unknownError'}
+
+                else:
+                    soup = BeautifulSoup(response.content, 'html.parser')
+
+                    for x in soup.findAll("a"):
+                        if "href" in str(x) and "tiktokcdn.com" in x["href"]:
+                            return {'valid':True,'is_video': True,'desc': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[23:-19],'thumbnail': soup.findAll('img',attrs={'class':'responsive-img'})[0]['src'],'desc':soup.findAll('h2',class_="white-text")[1].getText(),'url': url,'items':x["href"]}
+
+
+                    return {
+                        'valid': True,
+                        'is_video': True,
+                        'desc': soup.findAll('h2', attrs={'class':'white-text'})[0].get_text()[23:-19],
+                        'thumbnail': soup.findAll('img',attrs={'class':'responsive-img'})[0]['src'],
+                        'items': soup.findAll('a',attrs={'class':'btn waves-effect waves-light orange'})[0]['href'],
+                        'desc':soup.findAll('h2',class_="white-text")[1].getText(),
+                        'url': url
+                    }
+
+            except Exception as e:
+                print(e)
+                return {'valid': False,'error1': 'exception'}
+        
         else:
-            videos_url = resp["aweme_detail"]["video"]["bit_rate"][0]["play_addr"]["url_list"][-1]
-            large_for_tg=True
-        return {"valid": True, "is_video": True, "large_for_tg": large_for_tg, "cover": cover_url, "items": videos_url, "nickname": nickname, "desc": desc, "statistic": statistic, "music": music}
+            return {'valid': False,'error2': 'exception'}
 
     else:
-        images_url = []
-        images = resp["aweme_detail"]["image_post_info"]["images"]
-        for i in images:
-            if len(i["display_image"]["url_list"]) > 0:
-                images_url.append(i["display_image"]["url_list"][0])
-            else:
-                print("err. images_url 0 len")
-        return {"valid": True, "is_video": False, "large_for_tg": False, "cover": None, "items": images_url, "nickname": nickname, "desc": desc, "statistic": statistic, "music": music}
+        return {'valid': False,'error': 'invalidUrl'}
 
 def shortenURL(url):
     try:
@@ -136,6 +184,8 @@ async def on_message(message):
                 
                 if tikTok["valid"] != True:
                     await message.clear_reaction('🔁')
+                    await message.add_reaction('👮‍♂️')
+                    await message.add_reaction('🛑')
                     await message.add_reaction('🚷')
                     return
 
@@ -148,16 +198,32 @@ async def on_message(message):
                 description += "\n\n:link:: <"+message.content+">"
 
                 if tikTok["is_video"] == False:
-                    await message.channel.send(content=description + "\n" + message.content)
+                    await message.channel.send(content=message.author.mention + "\n\n:link:: <"+message.content+">")
                     for photo in tikTok["items"]:
                         await message.channel.send(content=photo)
+                    try:
+                        await message.delete()
+                    except:
+                        await message.add_reaction('✅')
+                        await message.clear_reaction('🔁')
                     return
                 
                 # download file with randomized file name
+                print(directLink)
                 randomizedFileName = requests.get("https://random-word-api.herokuapp.com/word").json()[0] + ".mp4"
-                downloadFile = requests.get(directLink[-1]).content
-                with open(randomizedFileName,"wb") as f:
-                    f.write(downloadFile)
+                
+                attempts = 10
+                while(True):
+                    if attempts == 0:
+                        await message.channel.send(content="Failed to download TikTok! Try again in a few minutes.")
+                        return
+                    downloadFile = requests.get(directLink)
+                    with open(randomizedFileName,"wb") as f:
+                        f.write(downloadFile.content)
+                    if not os.path.getsize(randomizedFileName) < 5000:
+                        break
+                    attempts -= 1
+                    print("failed to upload",os.path.getsize(randomizedFileName),downloadFile.status_code)
 
                 # attempt to upload the file, if not then the file size is over 8MB, return shortened bit.ly link
                 try:
@@ -167,7 +233,7 @@ async def on_message(message):
                         bitty = shortenURL(directLink)
                         await message.channel.send(description + "\n\n"+ bitty)
                     except:
-                        await message.channel.send(content=description + "\n" + directLink[-1])
+                        pass
 
                 try:
                     await message.delete()
